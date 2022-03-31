@@ -12,6 +12,8 @@ wayland-client = "0.29.4"
 wayland-commons = "0.29.4"
 gamescope-protocol = { version = "0.0.1", features = ["client", "server"] }
 gstreamer = "0.18.6"
+glib = "0.15.10"
+anyhow = "1.0"
 
 [build-dependencies]
 wayland-scanner = "0.29.4"
