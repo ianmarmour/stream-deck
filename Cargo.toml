@@ -14,10 +14,11 @@ gamescope-protocol = { version = "0.0.1", features = ["client", "server"] }
 gstreamer = "0.18.6"
 glib = "0.15.10"
 anyhow = "1.0"
+gtk4 = "0.4.7"
 
 [build-dependencies]
 wayland-scanner = "0.29.4"
 
 [[bin]]
 name = "stream-deck"
-path = "main.rs"
+path = "src/main.rs"
