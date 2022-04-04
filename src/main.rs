@@ -1,60 +1,54 @@
-use gtk4 as gtk;
-use gtk::prelude::*;
-use gtk::{Application, ApplicationWindow, BoxLayout, Orientation, MediaStream};
+use gstreamer as gst;
 
-use gstreamer::prelude::*;
-use wayland_client::{Display, GlobalManager, global_filter };
-use gamescope_protocol::gamescope_pipewire::client::gamescope_pipewire::{GamescopePipewire, Event};
-use anyhow::Error;
+use gtk::prelude::*;
+use gst::prelude::*;
+use gio::prelude::*;
+use glib::prelude::*;
+
+use std::thread;
 
 fn main() {
-    let wl_gamescope_display_name = "gamescope-0";
-    let display = Display::connect_to_name(wl_gamescope_display_name).unwrap();
-    let mut event_queue = display.create_event_queue();
-    let attached_display = (*display).clone().attach(event_queue.token());
+    gtk::init().unwrap();
+    gst::init().unwrap();
 
-    let globals = GlobalManager::new(
-        &attached_display, 
-    );
+    let app = gtk::Application::builder()
+        .application_id("org.ianmarmour.StreamDeck")
+        .build();
 
-    event_queue.sync_roundtrip(&mut (), |_, _, _| unreachable!()).unwrap();
-
-    let gamescope = globals.instantiate_exact::<GamescopePipewire>(1).unwrap();
-
-    gamescope.quick_assign(|_main, ev, _dispatch_data| {
-        match ev {
-            Event::StreamNode { node_id } => build_ui(node_id).unwrap(),
-            _ => (),
-        }
-    });
-
-    event_queue.sync_roundtrip(&mut (), |_, _, _| unreachable!()).unwrap();
+    app.connect_activate(build_ui);
+    app.run();
 }
 
+fn get_pipeline() -> gtk::Widget {
+    let pipeline = gst::Pipeline::new(None);
 
-fn build_ui(id: u32) -> Result<(), Error> {
-    gstreamer::init()?;
-    let pipeline = gstreamer::Pipeline::new(None);
+    // Pipewire based source for desktop capture
+    let src = gst::parse_launch("pipewiresrc").unwrap();
 
-    let src = gstreamer::parse_launch(&format!("pipewiresrc path={} ! videoconvert", id))?;
-    let (sink, widget) = if let Ok(gtkglsink) = gstreamer::ElementFactory::make("gtkglsink", None) {
-        let glsinkbin = gstreamer::ElementFactory::make("glsinkbin", None).unwrap();
+    let (sink, widget) = if let Ok(gtkglsink) = gst::ElementFactory::make("gtkglsink", None) {
+        let glsinkbin = gst::ElementFactory::make("glsinkbin", None).unwrap();
         glsinkbin.set_property("sink", &gtkglsink);
         let widget = gtkglsink.property::<gtk::Widget>("widget");
         (glsinkbin, widget)
     } else {
-        let sink = gstreamer::ElementFactory::make("gtksink", None).unwrap();
+        let sink = gst::ElementFactory::make("gtksink", None).unwrap();
         let widget = sink.property::<gtk::Widget>("widget");
-
         (sink, widget)
     };
 
     pipeline.add_many(&[&src, &sink]).unwrap();
+
     src.link(&sink).unwrap();
 
-    let app = Application::builder()
-        .application_id("org.example.HelloWorld")
-        .build();
+    pipeline
+        .set_state(gst::State::Playing)
+        .expect("Unable to set the pipeline to the `Playing` state");
+
+    return widget;
+}
+
+fn build_ui(application: &gtk::Application) {
+    let video_widget = get_pipeline();
 
     let start_button = gtk::Button::builder()
         .label("Record")
@@ -64,32 +58,35 @@ fn build_ui(id: u32) -> Result<(), Error> {
         .margin_end(12)
         .build();
 
-    let menu_box = gtk::Box::builder()
-        .orientation(Orientation::Horizontal)
+    let recording_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
         .build();
 
-    let recording_box = gtk::Box::builder()
-        .orientation(Orientation::Horizontal)
-        .build();
+    recording_box.pack_start(&video_widget, true, true, 0);
 
     let button_box = gtk::Box::builder()
-        .orientation(Orientation::Horizontal)
+        .orientation(gtk::Orientation::Horizontal)
         .build();
-    
-    recording_box.append(&widget);
-    button_box.append(&start_button);
 
-    let window = gtk::Window::builder()
+    button_box.pack_start(&start_button, true, true, 0);
+
+    let total_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .build();
+
+    total_box.pack_start(&recording_box, true, true, 0);
+    total_box.pack_start(&button_box, true, true, 0);
+
+
+    let window = gtk::ApplicationWindow::builder()
+        .application(application)
         .default_width(1280)
         .default_height(800)
+        .child(&total_box)
         .title("Hello World")
-        .child(&menu_box)
-        .child(&recording_box)
-        .child(&button_box)
         .build();
+    
+    application.add_window(&window);
 
-    app.add_window(&window);
-
-    app.run();
-    Ok(())
+    window.show_all();
 }
